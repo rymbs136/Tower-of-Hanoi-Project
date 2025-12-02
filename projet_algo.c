@@ -7,7 +7,7 @@
 
 #ifdef _WIN32
 #include <windows.h>
-#include <conio.h>3
+#include <conio.h>
 #define CLEAR_SCREEN "cls"
 #else
 #include <unistd.h>
@@ -490,6 +490,96 @@ void launchVisualizer() {
 }
 
 // ═══════════════════════════════════════════════════════════
+//  BATCH TESTING IMPLEMENTATION
+// ═══════════════════════════════════════════════════════════
+void runBatchExperiments(int maxDisks, int isIterative) {
+    clearScreen();
+    printf("\n");
+    const char* modeStr = isIterative ? "ITERATIVE" : "RECURSIVE";
+    const char* color = isIterative ? BRIGHT_MAGENTA : BRIGHT_GREEN;
+    
+    printf("%s%s+=============================================================================+%s\n", BOLD, color, RESET);
+    printf("%s%s|               BATCH PERFORMANCE TEST (%s)                       |%s\n", BOLD, color, modeStr, RESET);
+    printf("%s%s+=============================================================================+%s\n", BOLD, color, RESET);
+    printf("\n");
+    
+    printf("%s%s  %-10s | %-20s | %-15s | %-15s%s\n", BOLD, BRIGHT_CYAN, "Disks", "Total Moves", "Time (sec)", "Moves/Sec", RESET);
+    printSeparator(BRIGHT_BLACK);
+    
+    // Calibrate if needed (reuse existing calibration logic or variable)
+    if (calibratedMovesPerSecond == 0.0) {
+        // Quick calibration
+        clock_t cStart = clock();
+        if (isIterative) {
+             Stack s = createStack(20); Stack a = createStack(20); Stack d = createStack(20);
+             for(int i=20; i>=1; i--) push(&s, i);
+             long long m = (1LL<<20)-1;
+             char S='A', A='B', D='C';
+             for(long long i=1; i<=m; i++) {
+                 if(i%3==1) legalMoveSilent(&s,&d,S,D);
+                 else if(i%3==2) legalMoveSilent(&s,&a,S,A);
+                 else legalMoveSilent(&a,&d,A,D);
+             }
+             free(s.arr); free(a.arr); free(d.arr);
+        } else {
+            moveCount = 0;
+            hanoi(20, 'A', 'C', 'B');
+        }
+        clock_t cEnd = clock();
+        double cTime = (double)(cEnd - cStart) / CLOCKS_PER_SEC;
+        if (cTime > 0) calibratedMovesPerSecond = ((1LL<<20)-1) / cTime;
+        else calibratedMovesPerSecond = 1e9;
+    }
+
+    for (int n = 1; n <= maxDisks; n++) {
+        long long expectedMoves = (1LL << n) - 1;
+        double timeTaken = 0.0;
+        
+        // Run the algorithm
+        clock_t start = clock();
+        
+        if (isIterative) {
+            Stack src = createStack(n);
+            Stack aux = createStack(n);
+            Stack dest = createStack(n);
+            
+            for (int i = n; i >= 1; i--) push(&src, i);
+            
+            char S = 'A', A = 'B', D = 'C';
+            if (n % 2 == 0) { char t = D; D = A; A = t; }
+            
+            for (long long i = 1; i <= expectedMoves; i++) {
+                if (i % 3 == 1) legalMoveSilent(&src, &dest, S, D);
+                else if (i % 3 == 2) legalMoveSilent(&src, &aux, S, A);
+                else legalMoveSilent(&aux, &dest, A, D);
+            }
+            
+            free(src.arr); free(aux.arr); free(dest.arr);
+        } else {
+            moveCount = 0;
+            hanoi(n, 'A', 'C', 'B');
+        }
+        
+        clock_t end = clock();
+        timeTaken = (double)(end - start) / CLOCKS_PER_SEC;
+        
+        // Fix for 0 time on fast machines/small N
+        if (timeTaken < 0.001 && calibratedMovesPerSecond > 0) {
+            timeTaken = expectedMoves / calibratedMovesPerSecond;
+        }
+        
+        double mps = (timeTaken > 0) ? expectedMoves / timeTaken : 0.0;
+        
+        printf("  %-10d | %-20lld | %-15.6f | %-15.0f\n", 
+               n, expectedMoves, timeTaken, mps);
+        fflush(stdout); // Ensure line prints immediately
+    }
+    
+    printSeparator(BRIGHT_BLACK);
+    pressAnyKey();
+}
+
+// ═══════════════════════════════════════════════════════════
 //  MENU SYSTEMS
 // ═══════════════════════════════════════════════════════════
 void recursiveMenu() {
@@ -512,6 +602,8 @@ void recursiveMenu() {
         printf("  %s3.%s %sStandard Tests%s    - Run 5, 10, 15, 20 disk tests\n", 
                BRIGHT_CYAN, RESET, BRIGHT_WHITE, RESET);
         printf("  %s4.%s %sExplanation%s       - Learn how the algorithm works\n", 
+               BRIGHT_CYAN, RESET, BRIGHT_WHITE, RESET);
+        printf("  %s5.%s %sBatch Test%s        - Run range 1-N (Table View)\n", 
                BRIGHT_CYAN, RESET, BRIGHT_WHITE, RESET);
         printf("  %s0.%s %sBack%s              - Return to main menu\n", 
                BRIGHT_CYAN, RESET, BRIGHT_WHITE, RESET);
@@ -559,6 +651,18 @@ void recursiveMenu() {
             case 4:
                 showRecursiveExplanation();
                 break;
+
+            case 5:
+                printf("%s  Max disks to test (e.g., 25): %s", BRIGHT_YELLOW, RESET);
+                if (scanf("%d", &disks) == 1 && disks > 0) {
+                    if (disks > 30) {
+                         printf("\n%s  Warning: %d disks will take a long time! Continue? (1=Yes): %s", BRIGHT_RED, disks, RESET);
+                         int c; scanf("%d", &c);
+                         if (c!=1) break;
+                    }
+                    runBatchExperiments(disks, 0);
+                }
+                break;
                 
             case 0:
                 return;
@@ -571,6 +675,9 @@ void recursiveMenu() {
     }
 }
 
+// ═══════════════════════════════════════════════════════════
+//  ITERATIVE MENU
+// ═══════════════════════════════════════════════════════════
 void iterativeMenu() {
     int choice;
     int disks;
@@ -589,6 +696,8 @@ void iterativeMenu() {
         printf("  %s3.%s %sStandard Tests%s    - Run 5, 10, 15, 20 disk tests\n", 
                BRIGHT_CYAN, RESET, BRIGHT_WHITE, RESET);
         printf("  %s4.%s %sExplanation%s       - Learn how the algorithm works\n", 
+               BRIGHT_CYAN, RESET, BRIGHT_WHITE, RESET);
+        printf("  %s5.%s %sBatch Test%s        - Run range 1-N (Table View)\n", 
                BRIGHT_CYAN, RESET, BRIGHT_WHITE, RESET);
         printf("  %s0.%s %sBack%s              - Return to main menu\n", 
                BRIGHT_CYAN, RESET, BRIGHT_WHITE, RESET);
@@ -623,6 +732,18 @@ void iterativeMenu() {
                 
             case 4:
                 showIterativeExplanation();
+                break;
+
+            case 5:
+                printf("%s  Max disks to test (e.g., 25): %s", BRIGHT_YELLOW, RESET);
+                if (scanf("%d", &disks) == 1 && disks > 0) {
+                    if (disks > 30) {
+                         printf("\n%s  Warning: %d disks will take a long time! Continue? (1=Yes): %s", BRIGHT_RED, disks, RESET);
+                         int c; scanf("%d", &c);
+                         if (c!=1) break;
+                    }
+                    runBatchExperiments(disks, 1);
+                }
                 break;
                 
             case 0:
@@ -700,3 +821,5 @@ int main() {
     
     return 0;
 }
+
+
